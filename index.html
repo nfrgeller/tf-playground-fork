@@ -139,9 +139,8 @@ limitations under the License.
       <div class="control ui-problem">
         <label for="problem">Problem type</label>
         <div class="select">
-          <select id="problem">
+          <select id="problem" class="mdl-textfield__input">
             <option value="classification">Classification</option>
-            <option value="regression">Regression</option>
           </select>
         </div>
       </div>
@@ -204,6 +203,10 @@ limitations under the License.
           </button>
           <button class="basic-button" id="unlearn-button" title="Remove a random data point">
             Unlearn a Random Point
+          </button>
+          <button class="basic-button" id="unlearn-boundary-button"
+            title="Remove the point closest to the decision boundary">
+            Unlearn Boundary Point
           </button>
           <div class="ui-n">
             <label for="n">N:&nbsp;&nbsp;<span class="value">XX</span></label>

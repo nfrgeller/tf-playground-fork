@@ -18,7 +18,6 @@ import { HeatMap, reduceMatrix } from "./heatmap";
 import {
   State,
   datasets,
-  regDatasets,
   activations,
   problems,
   regularizations,
@@ -184,6 +183,11 @@ function makeGUI() {
     userHasInteracted();
   });
 
+  d3.select("#unlearn-boundary-button").on("click", () => {
+    unlearnBoundaryPoint();
+    userHasInteracted();
+  });
+
   d3.select("#play-pause-button").on("click", function () {
     // Change the button's content.
     userHasInteracted();
@@ -225,25 +229,6 @@ function makeGUI() {
   let datasetKey = getKeyFromValue(datasets, state.dataset);
   // Select the dataset according to the current state.
   d3.select(`canvas[data-dataset=${datasetKey}]`)
-    .classed("selected", true);
-
-  let regDataThumbnails = d3.selectAll("canvas[data-regDataset]");
-  regDataThumbnails.on("click", function () {
-    let newDataset = regDatasets[this.dataset.regdataset];
-    if (newDataset === state.regDataset) {
-      return; // No-op.
-    }
-    state.regDataset = newDataset;
-    regDataThumbnails.classed("selected", false);
-    d3.select(this).classed("selected", true);
-    generateData();
-    parametersChanged = true;
-    reset();
-  });
-
-  let regDatasetKey = getKeyFromValue(regDatasets, state.regDataset);
-  // Select the dataset according to the current state.
-  d3.select(`canvas[data-regDataset=${regDatasetKey}]`)
     .classed("selected", true);
 
   d3.select("#add-layers").on("click", () => {
@@ -1010,15 +995,13 @@ function reset(onStartup = false) {
   iter = 0;
   let numInputs = constructInput(0, 0).length;
   let shape = [numInputs].concat(state.networkShape).concat([1]);
-  let outputActivation = (state.problem === Problem.REGRESSION) ?
-    nn.Activations.LINEAR : nn.Activations.TANH;
-  network = nn.buildNetwork(shape, state.activation, outputActivation,
+  network = nn.buildNetwork(shape, state.activation, nn.Activations.TANH,
     state.regularization, constructInputIds(), state.initZero);
   lossTrain = getLoss(network, trainData);
   lossTest = getLoss(network, testData);
   drawNetwork(network);
   updateUI(true);
-};
+}
 
 function initTutorial() {
   if (state.tutorial == null || state.tutorial === '' || state.hideText) {
@@ -1063,21 +1046,11 @@ function drawDatasetThumbnails() {
   }
   d3.selectAll(".dataset").style("display", "none");
 
-  if (state.problem === Problem.CLASSIFICATION) {
-    for (let dataset in datasets) {
-      let canvas: any =
-        document.querySelector(`canvas[data-dataset=${dataset}]`);
-      let dataGenerator = datasets[dataset];
-      renderThumbnail(canvas, dataGenerator);
-    }
-  }
-  if (state.problem === Problem.REGRESSION) {
-    for (let regDataset in regDatasets) {
-      let canvas: any =
-        document.querySelector(`canvas[data-regDataset=${regDataset}]`);
-      let dataGenerator = regDatasets[regDataset];
-      renderThumbnail(canvas, dataGenerator);
-    }
+  for (let dataset in datasets) {
+    let canvas: any =
+      document.querySelector(`canvas[data-dataset=${dataset}]`);
+    let dataGenerator = datasets[dataset];
+    renderThumbnail(canvas, dataGenerator);
   }
 }
 
@@ -1133,11 +1106,7 @@ function generateData(firstTime = false) {
     userHasInteracted();
   }
   Math.seedrandom(state.seed);
-  let numSamples = (state.problem === Problem.REGRESSION) ?
-    NUM_SAMPLES_REGRESS : NUM_SAMPLES_CLASSIFY;
-  let generator = state.problem === Problem.CLASSIFICATION ?
-    state.dataset : state.regDataset;
-  let data = generator(numSamples, state.noise / 100);
+  let data = state.dataset(NUM_SAMPLES_CLASSIFY, state.noise / 100);
   // Shuffle the data in-place.
   shuffle(data);
   // Split into train and test data.
@@ -1245,6 +1214,107 @@ function unlearnRandomPoint() {
 
   // Remove the point from the dataset
   trainData.splice(randomIndex, 1);
+
+  // Add red X at the point's location
+  const svg = d3.select("#heatmap svg");
+  const plotXScale = d3.scale.linear()
+    .domain(xDomain)
+    .range([0, 300]);
+  const plotYScale = d3.scale.linear()
+    .domain(yDomain)
+    .range([300, 0]);
+
+  svg.append("g")
+    .attr("class", "removed-point")
+    .append("path")
+    .attr("d", `M${plotXScale(point.x) - 5},${plotYScale(point.y) - 5} L${plotXScale(point.x) + 5},${plotYScale(point.y) + 5} M${plotXScale(point.x) + 5},${plotYScale(point.y) - 5} L${plotXScale(point.x) - 5},${plotYScale(point.y) + 5}`)
+    .style("stroke", "red")
+    .style("stroke-width", 2);
+
+  // Update the visualization
+  heatMap.updatePoints(trainData);
+  updateUI();
+}
+
+function unlearnBoundaryPoint() {
+  if (trainData.length === 0) return;
+
+  // Find the point closest to the decision boundary (f(x) closest to 0)
+  let minDiff = Infinity;
+  let boundaryPointIndex = -1;
+
+  for (let i = 0; i < trainData.length; i++) {
+    const point = trainData[i];
+    const input = constructInput(point.x, point.y);
+    const output = nn.forwardProp(network, input);
+    // For classification, we want to find point where output is closest to 0
+    const diff = Math.abs(output);
+    if (diff < minDiff) {
+      minDiff = diff;
+      boundaryPointIndex = i;
+    }
+  }
+
+  if (boundaryPointIndex === -1) return;
+
+  // Get the boundary point
+  const point = trainData[boundaryPointIndex];
+
+  // Generate N noisy versions of the point
+  const noisyPoints: { x: number, y: number }[] = [];
+  for (let i = 0; i < n; i++) {
+    // Add Gaussian noise to both x and y coordinates
+    const noiseX = gaussianRandom();
+    const noiseY = gaussianRandom();
+    noisyPoints.push({
+      x: point.x + noiseX,
+      y: point.y + noiseY
+    });
+  }
+
+  // Compute average difference quotient
+  let totalDiffQuotient = 0;
+  for (let i = 0; i < n; i++) {
+    const noisyPoint = noisyPoints[i];
+
+    // Get output for original point
+    const originalInput = constructInput(point.x, point.y);
+    const originalOutput = nn.forwardProp(network, originalInput);
+
+    // Get output for noisy point
+    const noisyInput = constructInput(noisyPoint.x, noisyPoint.y);
+    const noisyOutput = nn.forwardProp(network, noisyInput);
+
+    // Compute difference quotient
+    // |f(x + h) - f(x)| / |h|
+    const outputDiff = Math.abs(noisyOutput - originalOutput);
+    const inputDiff = Math.sqrt(
+      Math.pow(noisyPoint.x - point.x, 2) +
+      Math.pow(noisyPoint.y - point.y, 2)
+    );
+    const diffQuotient = outputDiff / inputDiff;
+
+    totalDiffQuotient += diffQuotient;
+  }
+
+  // Average difference quotient
+  const avgDiffQuotient = totalDiffQuotient / n;
+
+  // Update weights to minimize the average difference quotient
+  for (let step = 0; step < unlearnSteps; step++) {
+    // Forward pass with original point
+    const input = constructInput(point.x, point.y);
+    const output = nn.forwardProp(network, input);
+
+    // Compute gradients to minimize the average difference quotient
+    nn.backProp(network, avgDiffQuotient, nn.Errors.SQUARE);
+
+    // Update weights with small step size
+    nn.updateWeights(network, unlearnStepSize, 0);
+  }
+
+  // Remove the point from the dataset
+  trainData.splice(boundaryPointIndex, 1);
 
   // Add red X at the point's location
   const svg = d3.select("#heatmap svg");
