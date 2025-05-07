@@ -1059,6 +1059,10 @@ function hideControls() {
     .attr("href", window.location.href);
 }
 
+function clearRemovedPoints() {
+  d3.selectAll(".removed-point").remove();
+}
+
 function generateData(firstTime = false) {
   if (!firstTime) {
     // Change the seed.
@@ -1078,6 +1082,7 @@ function generateData(firstTime = false) {
   let splitIndex = Math.floor(data.length * state.percTrainData / 100);
   trainData = data.slice(0, splitIndex);
   testData = data.slice(splitIndex);
+  clearRemovedPoints();
   heatMap.updatePoints(trainData);
   heatMap.updateTestPoints(state.showTestData ? testData : []);
 }
