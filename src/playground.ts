@@ -143,7 +143,8 @@ state.getHiddenProps().forEach(prop => {
 let boundary: { [id: string]: number[][] } = {};
 let selectedNodeId: string = null;
 // Plot the heatmap.
-let xDomain: [number, number] = [-6, 6];
+let xDomain: [number, number] = [-10, 10];
+let yDomain: [number, number] = [-10, 10];
 let heatMap =
   new HeatMap(300, DENSITY, xDomain, xDomain, d3.select("#heatmap"),
     { showAxes: true });
@@ -164,6 +165,12 @@ let lossTest = 0;
 let player = new Player();
 let lineChart = new AppendingLineChart(d3.select("#linechart"),
   ["#777", "black"]);
+
+// Add to the state variables at the top
+let n = 1;
+let sigma = 0.1;
+let unlearnStepSize = 0.01;
+let unlearnSteps = 1;
 
 function makeGUI() {
   d3.select("#reset-button").on("click", () => {
@@ -387,6 +394,61 @@ function makeGUI() {
     d3.select("div.more").style("display", "none");
     d3.select("header").style("display", "none");
   }
+
+  let nSlider = d3.select("#n").on("input", function () {
+    n = +this.value;
+    d3.select("label[for='n'] .value").text(this.value);
+  });
+  nSlider.property("value", n);
+  d3.select("label[for='n'] .value").text(n);
+
+  let unlearnStepsSlider = d3.select("#unlearnSteps").on("input", function () {
+    unlearnSteps = +this.value;
+    d3.select("label[for='unlearnSteps'] .value").text(this.value);
+  });
+  unlearnStepsSlider.property("value", unlearnSteps);
+  d3.select("label[for='unlearnSteps'] .value").text(unlearnSteps);
+
+  let sigmaSlider = d3.select("#sigma").on("input", function () {
+    sigma = +this.value;
+    d3.select("label[for='sigma'] .value").text(sigma.toFixed(3));
+  });
+  sigmaSlider.property("value", sigma);
+  d3.select("label[for='sigma'] .value").text(sigma.toFixed(3));
+
+  let unlearnStepSizeSlider = d3.select("#unlearnStepSize").on("input", function () {
+    unlearnStepSize = +this.value;
+    d3.select("label[for='unlearnStepSize'] .value").text(unlearnStepSize.toFixed(4));
+  });
+  unlearnStepSizeSlider.property("value", unlearnStepSize);
+  d3.select("label[for='unlearnStepSize'] .value").text(unlearnStepSize.toFixed(4));
+
+  // Add scale transformations for the sliders
+  let sigmaScale = d3.scale.linear()
+    .domain([0, 1000])  // 0 to 1000 for better slider control
+    .range([0.001, 1]);
+
+  let stepSizeScale = d3.scale.linear()
+    .domain([0, 10000])  // 0 to 10000 for better slider control
+    .range([0.0001, 1]);
+
+  // Update the sigma slider to use the scale
+  sigmaSlider.on("input", function () {
+    let rawValue = +this.value;
+    sigma = sigmaScale(rawValue);
+    d3.select("label[for='sigma'] .value").text(sigma.toFixed(3));
+  });
+  sigmaSlider.property("value", sigmaScale.invert(sigma));
+  d3.select("label[for='sigma'] .value").text(sigma.toFixed(3));
+
+  // Update the unlearn step size slider to use the scale
+  unlearnStepSizeSlider.on("input", function () {
+    let rawValue = +this.value;
+    unlearnStepSize = stepSizeScale(rawValue);
+    d3.select("label[for='unlearnStepSize'] .value").text(unlearnStepSize.toFixed(4));
+  });
+  unlearnStepSizeSlider.property("value", stepSizeScale.invert(unlearnStepSize));
+  d3.select("label[for='unlearnStepSize'] .value").text(unlearnStepSize.toFixed(4));
 }
 
 function updateBiasesUI(network: nn.Node[][]) {
@@ -1113,33 +1175,95 @@ function simulationStarted() {
   parametersChanged = false;
 }
 
+function gaussianRandom(): number {
+  // Use Box-Muller transform to generate Gaussian random numbers
+  const u1 = Math.random();
+  const u2 = Math.random();
+  const z0 = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
+  return z0 * sigma;  // Scale by sigma to get desired standard deviation
+}
+
 function unlearnRandomPoint() {
   if (trainData.length === 0) return;
 
-  // Get a random index
+  // Get a random point to unlearn
   const randomIndex = Math.floor(Math.random() * trainData.length);
-  const removedPoint = trainData[randomIndex];
+  const point = trainData[randomIndex];
+
+  // Generate N noisy versions of the point
+  const noisyPoints: { x: number, y: number }[] = [];
+  for (let i = 0; i < n; i++) {
+    // Add Gaussian noise to both x and y coordinates
+    const noiseX = gaussianRandom();
+    const noiseY = gaussianRandom();
+    noisyPoints.push({
+      x: point.x + noiseX,
+      y: point.y + noiseY
+    });
+  }
+
+  // Compute average difference quotient
+  let totalDiffQuotient = 0;
+  for (let i = 0; i < n; i++) {
+    const noisyPoint = noisyPoints[i];
+
+    // Get output for original point
+    const originalInput = constructInput(point.x, point.y);
+    const originalOutput = nn.forwardProp(network, originalInput);
+
+    // Get output for noisy point
+    const noisyInput = constructInput(noisyPoint.x, noisyPoint.y);
+    const noisyOutput = nn.forwardProp(network, noisyInput);
+
+    // Compute difference quotient
+    // |f(x + h) - f(x)| / |h|
+    const outputDiff = Math.abs(noisyOutput - originalOutput);
+    const inputDiff = Math.sqrt(
+      Math.pow(noisyPoint.x - point.x, 2) +
+      Math.pow(noisyPoint.y - point.y, 2)
+    );
+    const diffQuotient = outputDiff / inputDiff;
+
+    totalDiffQuotient += diffQuotient;
+  }
+
+  // Average difference quotient
+  const avgDiffQuotient = totalDiffQuotient / n;
+
+  // Update weights to minimize the average difference quotient
+  for (let step = 0; step < unlearnSteps; step++) {
+    // Forward pass with original point
+    const input = constructInput(point.x, point.y);
+    const output = nn.forwardProp(network, input);
+
+    // Compute gradients to minimize the average difference quotient
+    nn.backProp(network, avgDiffQuotient, nn.Errors.SQUARE);
+
+    // Update weights with small step size
+    nn.updateWeights(network, unlearnStepSize, 0);
+  }
 
   // Remove the point from the dataset
   trainData.splice(randomIndex, 1);
 
-  // Add a red X where the point was
+  // Add red X at the point's location
   const svg = d3.select("#heatmap svg");
-  const xScale = d3.scale.linear()
+  const plotXScale = d3.scale.linear()
     .domain(xDomain)
     .range([0, 300]);
-  const yScale = d3.scale.linear()
-    .domain(xDomain)
+  const plotYScale = d3.scale.linear()
+    .domain(yDomain)
     .range([300, 0]);
 
   svg.append("g")
     .attr("class", "removed-point")
     .append("path")
-    .attr("d", `M${xScale(removedPoint.x) - 5},${yScale(removedPoint.y) - 5} L${xScale(removedPoint.x) + 5},${yScale(removedPoint.y) + 5} M${xScale(removedPoint.x) + 5},${yScale(removedPoint.y) - 5} L${xScale(removedPoint.x) - 5},${yScale(removedPoint.y) + 5}`)
+    .attr("d", `M${plotXScale(point.x) - 5},${plotYScale(point.y) - 5} L${plotXScale(point.x) + 5},${plotYScale(point.y) + 5} M${plotXScale(point.x) + 5},${plotYScale(point.y) - 5} L${plotXScale(point.x) - 5},${plotYScale(point.y) + 5}`)
     .style("stroke", "red")
     .style("stroke-width", 2);
 
   // Update the visualization
+  heatMap.updatePoints(trainData);
   updateUI();
 }
 

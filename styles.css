@@ -573,6 +573,28 @@ g.column rect {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  width: 100%;
+}
+
+.button-container .ui-n,
+.button-container .ui-sigma,
+.button-container .ui-unlearnStepSize {
+  margin-top: 5px;
+}
+
+.button-container .slider {
+  margin: 0 -25px 10px;
+}
+
+.button-container label {
+  font-size: 13px;
+  color: #777;
+  font-weight: 300;
+}
+
+.button-container .value {
+  color: #333;
+  font-weight: 400;
 }
 
 #unlearn-button {

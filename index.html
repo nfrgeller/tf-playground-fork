@@ -205,6 +205,30 @@ limitations under the License.
           <button class="basic-button" id="unlearn-button" title="Remove a random data point">
             Unlearn a Random Point
           </button>
+          <div class="ui-n">
+            <label for="n">N:&nbsp;&nbsp;<span class="value">XX</span></label>
+            <p class="slider">
+              <input class="mdl-slider mdl-js-slider" type="range" id="n" min="1" max="20" step="1">
+            </p>
+          </div>
+          <div class="ui-unlearnSteps">
+            <label for="unlearnSteps">Number of Unlearning Steps:&nbsp;&nbsp;<span class="value">XX</span></label>
+            <p class="slider">
+              <input class="mdl-slider mdl-js-slider" type="range" id="unlearnSteps" min="1" max="100" step="1">
+            </p>
+          </div>
+          <div class="ui-sigma">
+            <label for="sigma">Sigma:&nbsp;&nbsp;<span class="value">XX</span></label>
+            <p class="slider">
+              <input class="mdl-slider mdl-js-slider" type="range" id="sigma" min="0" max="1000" step="1">
+            </p>
+          </div>
+          <div class="ui-unlearnStepSize">
+            <label for="unlearnStepSize">Unlearning Step Size:&nbsp;&nbsp;<span class="value">XX</span></label>
+            <p class="slider">
+              <input class="mdl-slider mdl-js-slider" type="range" id="unlearnStepSize" min="0" max="1000" step="1">
+            </p>
+          </div>
         </div>
       </div>
     </div>
