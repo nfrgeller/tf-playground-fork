@@ -1,0 +1,41 @@
+# .github/workflows/deploy.yml
+name: Build and Deploy TensorFlow Playground to GitHub Pages
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write        # Required for deploying to GitHub Pages
+      id-token: write     # Required for OIDC authentication
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18' # TensorFlow Playground was built some time ago, Node.js 18 or 20 should be fine. You can try 'latest' too.
+          cache: 'npm'       # Caches npm dependencies to speed up subsequent runs
+
+      - name: Install dependencies and build
+        run: |
+          npm ci # Installs dependencies cleanly based on package-lock.json
+          npm run build # Executes the build script defined in package.json
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: 'dist' 
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
